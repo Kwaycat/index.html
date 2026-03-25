@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MailSense</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(6px) } to { opacity:1; transform:translateY(0) } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const { useState } = React;
+const RANKS = [
+    { id: "unaware", min: 0, max: 99, en: "Unaware", no: "Ubevisst", icon: "😶", color: "#9e9e9e", den: "You're just getting started. Read the guide and try again!", dno: "Du er akkurat i gang. Les veiledningen og prøv igjen!" },
+    { id: "beginner", min: 100, max: 199, en: "Beginner", no: "Nybegynner", icon: "🌱", color: "#66bb6a", den: "You caught some red flags. Keep practising to sharpen your eye.", dno: "Du fanget noen røde flagg. Fortsett å øve for å skjerpe blikket." },
+    { id: "cautious", min: 200, max: 299, en: "Cautious", no: "Forsiktig", icon: "🔍", color: "#42a5f5", den: "You're developing good instincts. A few more sessions and you'll be solid.", dno: "Du utvikler gode instinkter. Noen flere runder og du sitter det." },
+    { id: "aware", min: 300, max: 374, en: "Aware", no: "Bevisst", icon: "🛡", color: "#ab47bc", den: "Strong awareness. You spot most threats before they cause harm.", dno: "Sterk bevissthet. Du oppdager de fleste trusler før de gjør skade." },
+    { id: "expert", min: 375, max: 449, en: "Expert", no: "Ekspert", icon: "⚡", color: "#ff7043", den: "Impressive! You're well above average and hard to fool.", dno: "Imponerende! Du er godt over gjennomsnittet og vanskelig å lure." },
+    { id: "professional", min: 450, max: 9999, en: "Professional", no: "Profesjonell", icon: "🏆", color: "#ffd700", den: "Outstanding. You have the skills of a cybersecurity professional.", dno: "Enestående. Du har ferdighetene til en cybersikkerhetsekspert." },
+];
+const getRank = s => RANKS.find(r => s >= r.min && s <= r.max) || RANKS[0];
+const DECOY_PEN = 15;
+const T = {
+    en: {
+        badge: "🛡 Phishing Awareness Training", introTitle: "Can you spot the phish?",
+        introDesc: "You'll be shown 8 emails, a mix of phishing attempts and real ones. Decide which is which and show your reasoning by clicking <strong>only</strong> the suspicious parts.",
+        rules: ["Read each email carefully", "If it looks fake, click the suspicious parts, then press 'This is Phishing'", "If it looks real, press 'Looks Real'", "Earn bonus points for clues spotted and lose points for wrong clicks"],
+        viewGuide: "📖 View Guide First", skipGame: "Skip to Game →", guideBadge: "📖 Beginner's Guide",
+        guideTitle: "What to look for in a phishing email",
+        guideDesc: "Phishing emails are fake messages designed to trick you. Click each card to learn what to watch out for.",
+        phishingWhat: "Phishing is when a scammer sends you a fake email pretending to be a real company, like your bank, Netflix, or a delivery service. The goal is to trick you into clicking a dangerous link or handing over personal details like passwords or payment information.",
+        guideTip: "No single sign guarantees an email is fake. Always look for multiple red flags.",
+        startGame: "Start the Game →", back: "← Back",
+        gameHint: "Click any part of the email that looks suspicious. Every line is clickable, but wrong clicks cost points!",
+        verdict: "Your verdict:", isPhishing: "🚩 This is Phishing", isLegit: "✅ Looks Real",
+        partsMarked: n => `${n} part${n !== 1 ? "s" : ""} marked`,
+        nextEmail: "Next Email →", seeResults: "See Results →",
+        ptsRound: (n, p) => p > 0 ? `+${n} pts this round (−${p} penalty)` : `+${n} pts this round`,
+        emailOf: (a, b) => `Email ${a} of ${b}`, pts: "pts", points: "points",
+        tryAgain: "🔄 Try Again", reviewGuide: "📖 Review Guide", startOver: "← Start Over",
+        inbox: "INBOX / Message View", penNote: n => `−${n} pts for ${n} incorrect click${n !== 1 ? "s" : ""}`,
+        yourRank: "Your Rank", allRanks: "All Ranks",
+        fCP: "Correct! This was a phishing email.", fWP: "Incorrect. This was a phishing email.",
+        fCL: "Correct! This was a legitimate email.", fWL: "Incorrect. This was a legitimate email.",
+        fBCP: (n, w) => `You spotted ${n} clue${n !== 1 ? "s" : ""}${w > 0 ? `, ${w} wrong click${w !== 1 ? "s" : ""}` : ""}.  Breakdown:`,
+        fBWP: "You marked it as legitimate. Here are the red flags you missed:",
+        fBCL: "Well spotted! This was a genuine email with a real sender domain, real links, and no urgency or threats.",
+        fBWL: "This was actually legitimate. Always check the sender domain and links before flagging something as phishing.",
+        darkMode: "Dark mode", lightMode: "Light mode",
+        guideCards: [
+            { id: "sender", icon: "📧", title: "Fake Sender Address", preview: "The email address looks almost right, but not quite.",
+                detail: "Scammers create addresses that look real but contain sneaky changes. Always check the full address, not just the display name.",
+                example: "Tricks used:\n• Number '1' instead of 'l':  paypa1.com\n• Capital 'I' instead of 'l':  paypaI.com\n• Added words:  support-paypal.com\n• Hyphens:  pay-pal.com\n• Free email:  paypal-support@gmail.com\n\nReal: service@paypal.com" },
+            { id: "links", icon: "🔗", title: "Suspicious Links", preview: "The link text looks fine, but where does it actually go?",
+                detail: "Hover over links to see the real destination. If it doesn't match the official domain, don't click.",
+                example: "Fake: http://paypal-secure-verify.account-login.com\nReal: https://www.paypal.com" },
+            { id: "urgency", icon: "⏰", title: "Urgency & Threats", preview: '"Act now or your account will be closed!"',
+                detail: "Pressure tactics like '24 hours' or 'suspended' are designed to stop you thinking. Legitimate companies don't threaten you.",
+                example: "Red flags: '24 hours', 'immediately', 'suspended', 'urgent action required'" },
+            { id: "toogood", icon: "🎁", title: "Too Good to Be True", preview: "You've won a prize! Claim your free gift now.",
+                detail: "Winning contests you didn't enter is a classic scam designed to excite you into clicking without thinking.",
+                example: "Red flags: 'You've been selected', 'Congratulations, you've won', 'Claim your reward'" },
+            { id: "greeting", icon: "👤", title: "Generic Greetings", preview: '"Dear Customer" instead of your actual name.',
+                detail: "Mass phishing emails use vague greetings because they don't know your name. Real companies usually use it, but this alone isn't proof. Always check other signs too.",
+                example: "Suspicious: 'Dear Customer' or 'Dear User'\nTrustworthy: 'Dear Alex Johnson'" },
+        ],
+    },
+    no: {
+        badge: "🛡 Phishing-bevissthetstrening", introTitle: "Kan du avsløre phishing-eposten?",
+        introDesc: "Du vil bli vist 8 e-poster, en blanding av phishing-forsøk og ekte e-poster. Bestem hvilke som er hva og vis grunnen din ved å klikke <strong>bare</strong> på de mistenkelige delene.",
+        rules: ["Les hver e-post nøye", "Hvis den ser falsk ut, klikk på mistenkelige deler og trykk deretter 'Dette er phishing'", "Hvis den ser ekte ut, trykk 'Ser ekte ut'", "Tjen bonuspoeng for ledetråd og mist poeng for feil klikk"],
+        viewGuide: "📖 Les veiledningen først", skipGame: "Hopp til spillet →", guideBadge: "📖 Nybegynnerveiledning",
+        guideTitle: "Hva du skal se etter i en phishing-e-post",
+        guideDesc: "Phishing-e-poster er falske meldinger laget for å lure deg. Klikk på hvert kort for å lære hva du bør passe på.",
+        phishingWhat: "Phishing er når en svindler sender deg en falsk e-post og later som de er et ekte selskap, som banken din, Netflix eller en leveringstjeneste. Målet er å lure deg til å klikke på en farlig lenke eller gi fra deg personlig informasjon som passord eller betalingsdetaljer.",
+        guideTip: "Ingen enkelt tegn garanterer at en e-post er falsk. Se alltid etter flere røde flagg.",
+        startGame: "Start spillet →", back: "← Tilbake",
+        gameHint: "Klikk på deler av e-posten som ser mistenkelige ut. Hver linje er klikkbar, men feil klikk koster poeng!",
+        verdict: "Din dom:", isPhishing: "🚩 Dette er phishing", isLegit: "✅ Ser ekte ut",
+        partsMarked: n => `${n} del${n !== 1 ? "er" : ""} markert`,
+        nextEmail: "Neste e-post →", seeResults: "Se resultater →",
+        ptsRound: (n, p) => p > 0 ? `+${n} poeng denne runden (−${p} straff)` : `+${n} poeng denne runden`,
+        emailOf: (a, b) => `E-post ${a} av ${b}`, pts: "poeng", points: "poeng",
+        tryAgain: "🔄 Prøv igjen", reviewGuide: "📖 Se veiledningen", startOver: "← Start på nytt",
+        inbox: "INNBOKS / Meldingsvisning", penNote: n => `−${n} poeng for ${n} feil klikk`,
+        yourRank: "Din rang", allRanks: "Alle ranger",
+        fCP: "Riktig! Dette var en phishing-e-post.", fWP: "Feil. Dette var en phishing-e-post.",
+        fCL: "Riktig! Dette var en legitim e-post.", fWL: "Feil. Dette var en legitim e-post.",
+        fBCP: (n, w) => `Du oppdaget ${n} ledetråd${n !== 1 ? "er" : ""}${w > 0 ? `, ${w} feil klikk` : ""}.  Oversikt:`,
+        fBWP: "Du merket den som legitim. Her er røde flaggene du gikk glipp av:",
+        fBCL: "Godt oppdaget! Dette var en ekte e-post med ekte avsenderdomene, ekte lenker og ingen hastverk.",
+        fBWL: "Dette var faktisk legitimt. Sjekk alltid avsenderdomenet og lenker før du merker noe som phishing.",
+        darkMode: "Mørk modus", lightMode: "Lys modus",
+        guideCards: [
+            { id: "sender", icon: "📧", title: "Falsk avsenderadresse", preview: "E-postadressen ser nesten riktig ut, men ikke helt.",
+                detail: "Svindlere lager adresser som ser ekte ut men inneholder lure endringer. Sjekk alltid hele adressen, ikke bare visningsnavnet.",
+                example: "Vanlige triks:\n• Tall '1' i stedet for 'l':  paypa1.com\n• Stor 'I' i stedet for 'l':  paypaI.com\n• Ekstra ord:  support-paypal.com\n• Bindestrek:  pay-pal.com\n• Gratis e-post:  paypal-support@gmail.com\n\nEkte: service@paypal.com" },
+            { id: "links", icon: "🔗", title: "Mistenkelige lenker", preview: "Lenketeksten ser fin ut, men hvor fører den egentlig?",
+                detail: "Hold musepekeren over lenker for å se det ekte målet. Samsvarer det ikke med offisielt domene, ikke klikk.",
+                example: "Falsk: http://paypal-sikker-bekreft.konto-innlogging.com\nEkte: https://www.paypal.com" },
+            { id: "urgency", icon: "⏰", title: "Hastverk og trusler", preview: '"Handle nå, ellers stenges kontoen din!"',
+                detail: "Pressetaktikker som '24 timer' er laget for å stoppe deg fra å tenke. Legitime selskaper truer deg ikke.",
+                example: "Røde flagg: '24 timer', 'umiddelbart', 'sperret', 'handling kreves'" },
+            { id: "toogood", icon: "🎁", title: "For godt til å være sant", preview: "Du har vunnet en premie! Krev gaven din nå.",
+                detail: "Å vinne konkurranser du ikke deltok i er klassisk svindel laget for å begeistre deg til å klikke uten å tenke.",
+                example: "Røde flagg: 'Du er utvalgt', 'Gratulerer, du har vunnet', 'Krev belønningen'" },
+            { id: "greeting", icon: "👤", title: "Generiske hilsener", preview: '"Kjære kunde" i stedet for ditt faktiske navn.',
+                detail: "Masse-phishing-e-poster vet ikke navnet ditt. Ekte selskaper henvender seg vanligvis med navn, men sjekk alltid andre tegn også.",
+                example: "Mistenkelig: 'Kjære kunde' / 'Kjære bruker'\nTillitsvekkende: 'Kjære Ola Nordmann'" },
+        ],
+    },
+};
+// s=true → suspicious clue (earns pts), s=false → decoy (costs pen pts), undefined key → unknown decoy (costs DECOY_PEN)
+const E = (id, isP, from, to, date, subE, subN, clues, bodyFn) => ({ id, isPhishing: isP, from, to, date, subject: { en: subE, no: subN }, clues, body: bodyFn });
+const C = (s, pts, pen, enL, enD, noL, noD) => ({ s, pts, pen, en: { label: enL, desc: enD }, no: { label: noL, desc: noD } });
+const ALL = [
+    E("p1", true, "security@paypa1-support.com", "you@example.com", "Mon, 10 Mar 2026, 08:42", "⚠️ Urgent: Your PayPal account has been limited", "⚠️ Haster: PayPal-kontoen din er begrenset", {
+        sender: C(true, 30, 0, "Fake sender domain", "'paypa1-support.com' uses '1' not 'l'. Real PayPal only emails from @paypal.com", "Falskt avsenderdomene", "'paypa1-support.com' bruker '1' ikke 'l'. Ekte PayPal sender kun fra @paypal.com"),
+        subject: C(true, 10, 0, "Alarming subject line", "Urgent warning subjects are designed to make you panic and act without thinking", "Alarmerende emnelinje", "Presserende emner er laget for å skape panikk"),
+        urgency: C(true, 20, 0, "Artificial urgency", "'24 hours or permanently suspended' is a classic pressure tactic", "Kunstig hastverk", "'24 timer eller permanent sperret' er en klassisk pressetaktikk"),
+        link: C(true, 30, 0, "Suspicious URL", "The link goes to 'account-login.com', not paypal.com", "Mistenkelig nettadresse", "Lenken går til 'account-login.com', ikke paypal.com"),
+        closing: C(false, 0, 10, "Normal closing, not suspicious", "A polite sign-off is normal. Not every part of a phishing email is a red flag.", "Normal avslutning", "En høflig avslutning er normalt og ikke alt er et rødt flagg."),
+    }, (H, l) => l === "en" ? (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p1a" }, "Dear Customer,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "urgency" },
+                "We have detected unusual activity on your account. Your access has been temporarily limited. You must verify your information within ",
+                React.createElement("strong", null, "24 hours"),
+                " or your account will be permanently suspended.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p1b" }, "Please click the link below to verify your account immediately:")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "link", lnk: true }, "http://paypal-secure-verify.account-login.com/verify")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "closing" }, "Thank you for being a valued customer. Regards, The PayPal Security Team")))) : (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p1a" }, "Kj\u00E6re kunde,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "urgency" },
+                "Vi har oppdaget uvanlig aktivitet p\u00E5 kontoen din. Du m\u00E5 bekrefte informasjonen din innen ",
+                React.createElement("strong", null, "24 timer"),
+                ", ellers vil kontoen bli permanent sperret.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p1b" }, "Klikk p\u00E5 lenken nedenfor umiddelbart:")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "link", lnk: true }, "http://paypal-sikker-bekreft.konto-innlogging.com/bekreft")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "closing" }, "Takk for at du er en verdsatt kunde. Med vennlig hilsen, PayPal Sikkerhetsteam"))))),
+    E("p2", true, "no-reply@amaz0n-orders.com", "you@example.com", "Tue, 11 Mar 2026, 13:20", "Your Amazon order has been placed on hold", "Amazon-bestillingen din er satt på vent", {
+        sender: C(true, 30, 0, "Fake sender domain", "'amaz0n-orders.com' uses zero '0' instead of 'o'. Real Amazon emails from @amazon.com", "Falskt avsenderdomene", "'amaz0n-orders.com' bruker null '0' i stedet for 'o'"),
+        urgency: C(true, 20, 0, "Urgency tactic", "'Must be resolved within 12 hours' is a pressure tactic", "Hastverk-taktikk", "'Må løses innen 12 timer' er en pressetaktikk"),
+        link: C(true, 30, 0, "Suspicious link", "The link goes to a third-party domain, not amazon.com", "Mistenkelig lenke", "Lenken går til et tredjeparts-domene, ikke amazon.com"),
+        greeting: C(true, 10, 0, "Generic greeting", "Amazon addresses you by your account name, not 'Dear Customer'", "Generisk hilsen", "Amazon henvender seg med navn, ikke 'Kjære kunde'"),
+        p2a: C(false, 0, 10, "Order number, normal content", "Order numbers in emails are expected and not suspicious.", "Ordrenummer, normalt innhold", "Ordrenumre i e-poster er forventet og ikke mistenkelige."),
+    }, (H, l) => l === "en" ? (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "greeting" }, "Dear Customer,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p2a" },
+                "We have been unable to process your recent order ",
+                React.createElement("strong", null, "#112-4859302-1234567"),
+                " due to a payment verification issue.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "urgency" }, "This must be resolved within 12 hours or your order will be cancelled and your account temporarily suspended.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p2b" }, "Please verify your payment details here:"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "link", lnk: true }, "http://amazon-order-verify.account-check.com/confirm")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "p2c" }, "Amazon Customer Service")))) : (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "greeting" }, "Kj\u00E6re kunde,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p2a" },
+                "Vi har ikke kunnet behandle bestillingen din ",
+                React.createElement("strong", null, "#112-4859302-1234567"),
+                " p\u00E5 grunn av et betalingsproblem.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "urgency" }, "Dette m\u00E5 l\u00F8ses innen 12 timer, ellers vil bestillingen bli kansellert.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p2b" }, "Bekreft betalingsdetaljene dine her:"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "link", lnk: true }, "http://amazon-bestilling-verifiser.konto-sjekk.com/bekreft")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "p2c" }, "Amazon Kundeservice"))))),
+    E("p3", true, "support@micros0ft-helpdesk.com", "you@example.com", "Wed, 12 Mar 2026, 09:05", "Your Microsoft account: suspicious sign-in detected", "Microsoft-kontoen din: mistenkelig innlogging oppdaget", {
+        sender: C(true, 30, 0, "Fake Microsoft domain", "'micros0ft-helpdesk.com' uses zero and hyphen. Microsoft only emails from @microsoft.com", "Falskt Microsoft-domene", "'micros0ft-helpdesk.com' bruker null og bindestrek"),
+        urgency: C(true, 20, 0, "Fear tactic", "Claiming someone accessed your account creates panic, which is a common phishing technique", "Frykt-taktikk", "Påstand om uautorisert tilgang skaper panikk"),
+        link: C(true, 30, 0, "Suspicious link", "The link goes to 'account-secure-check.net', not microsoft.com", "Mistenkelig lenke", "Lenken går til 'account-secure-check.net', ikke microsoft.com"),
+        greeting: C(true, 10, 0, "Generic greeting", "Microsoft knows your name so 'Dear User' is a red flag", "Generisk hilsen", "Microsoft kjenner navnet ditt, så 'Kjære bruker' er et rødt flagg"),
+    }, (H, l) => l === "en" ? (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "greeting" }, "Dear User,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "urgency" }, "We detected a suspicious sign-in to your Microsoft account from an unknown device in Romania. If this wasn't you, your account may be compromised.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p3a" }, "Secure your account immediately:"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "link", lnk: true }, "http://microsoft-account-secure-check.net/verify")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "p3b" }, "Microsoft Security Team")))) : (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "greeting" }, "Kj\u00E6re bruker,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "urgency" }, "Vi oppdaget en mistenkelig innlogging fra en ukjent enhet i Romania. Hvis dette ikke var deg, kan kontoen din v\u00E6re kompromittert.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p3a" }, "Sikre kontoen din umiddelbart:"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "link", lnk: true }, "http://microsoft-konto-sikker-sjekk.net/bekreft")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "p3b" }, "Microsoft Sikkerhetsteam"))))),
+    E("p4", true, "noreply@netf1ix-billing.com", "you@example.com", "Thu, 13 Mar 2026, 18:44", "Action required: Update your Netflix payment information", "Handling kreves: Oppdater betalingsinformasjonen din på Netflix", {
+        sender: C(true, 30, 0, "Fake Netflix domain", "'netf1ix-billing.com' uses '1' instead of 'l'. Netflix only emails from @netflix.com", "Falskt Netflix-domene", "'netf1ix-billing.com' bruker '1' i stedet for 'l'"),
+        subject: C(true, 10, 0, "Action required tactic", "'Action required' in a subject is a common phishing pressure phrase", "Handling kreves-taktikk", "'Handling kreves' er en vanlig phishing-frase"),
+        urgency: C(true, 20, 0, "Service suspension threat", "Threatening to cancel your subscription forces quick action without thinking", "Trussel om oppsigelse", "Trussel om å kansellere abonnementet ditt"),
+        link: C(true, 30, 0, "Suspicious link", "The link goes to 'netflix-payment-update.com', not netflix.com", "Mistenkelig lenke", "Lenken går til 'netflix-payment-update.com', ikke netflix.com"),
+    }, (H, l) => l === "en" ? (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p4a" }, "Hello,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "urgency" }, "Your Netflix membership will be cancelled on 15 March 2026 due to a failed payment. To continue enjoying Netflix, you need to update your billing information.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p4b" }, "Update your payment details here:"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "link", lnk: true }, "http://netflix-payment-update.com/account/billing")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "p4c" }, "Netflix Support")))) : (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p4a" }, "Hei,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "urgency" }, "Netflix-abonnementet ditt vil bli kansellert 15. mars 2026 p\u00E5 grunn av mislykket betaling.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p4b" }, "Oppdater betalingsdetaljene dine her:"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "link", lnk: true }, "http://netflix-betaling-oppdater.com/konto/fakturering")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "p4c" }, "Netflix Kundest\u00F8tte"))))),
+    E("p5", true, "prize-winner@lucky-draw-int1.com", "you@example.com", "Fri, 14 Mar 2026, 11:30", "🎉 Congratulations! You've been selected as a winner", "🎉 Gratulerer! Du er valgt ut som vinner", {
+        sender: C(true, 30, 0, "Suspicious sender domain", "'lucky-draw-int1.com' is not a real company, it is a throwaway domain used by scammers", "Mistenkelig avsenderdomene", "'lucky-draw-int1.com' er ikke et ekte selskap, det er et engangsdomene"),
+        subject: C(true, 15, 0, "Too good to be true", "Winning a contest you never entered is a classic scam signal", "For godt til å være sant", "Å vinne en konkurranse du aldri deltok i er et klassisk svindeltegn"),
+        urgency: C(true, 15, 0, "Claim deadline pressure", "Fake deadlines like '48 hours to claim' rush you into acting without verifying", "Kravsfrist-press", "Falske frister som '48 timer' er laget for å stresse deg"),
+        link: C(true, 30, 0, "Suspicious claim link", "Legitimate prize notifications never ask you to click unknown links", "Mistenkelig lenke", "Legitime premievarsler ber deg ikke klikke ukjente lenker"),
+    }, (H, l) => l === "en" ? (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p5a" }, "Dear Lucky Winner,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "subject" }, "You have been randomly selected to receive a \u00A3500 Amazon gift card as part of our annual customer appreciation draw!")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "urgency" }, "You have 48 hours to claim your prize before it is reallocated to another winner.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p5b" }, "Claim your prize now:"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "link", lnk: true }, "http://lucky-draw-int1.com/claim?ref=winner-4829")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "p5c" }, "Lucky Draw International Team")))) : (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p5a" }, "Kj\u00E6re heldige vinner,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "subject" }, "Du er tilfeldig valgt ut til \u00E5 motta et Amazon-gavekort p\u00E5 5000 kr!")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "urgency" }, "Du har 48 timer til \u00E5 kreve premien din f\u00F8r den overf\u00F8res til en annen vinner.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p5b" }, "Krev premien din n\u00E5:"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "link", lnk: true }, "http://lucky-draw-int1.com/krev?ref=vinner-4829")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "p5c" }, "Lucky Draw International Team"))))),
+    E("p6", true, "invoices@dh1-finance-dept.com", "you@example.com", "Mon, 17 Mar 2026, 08:15", "Invoice #8821, Payment overdue", "Faktura #8821, Betaling forfalt", {
+        sender: C(true, 30, 0, "Unknown sender domain", "'dh1-finance-dept.com' is not a recognised company. Be suspicious of unexpected invoices", "Ukjent avsenderdomene", "'dh1-finance-dept.com' er ikke et kjent firmadomene"),
+        urgency: C(true, 20, 0, "Overdue payment threat", "Fake invoice scams use overdue threats to pressure you into paying", "Forfalt betalingstrussel", "Falske faktura-svindler bruker forfalte betalingstrusler"),
+        link: C(true, 30, 0, "Suspicious payment link", "Legitimate invoices come through agreed channels, not random links", "Mistenkelig betalingslenke", "Legitime fakturaer kommer gjennom avtalte kanaler"),
+        amount: C(false, 0, 10, "Amount is normal content", "Invoice amounts are expected in billing emails. Not suspicious.", "Beløp er normalt innhold", "Beløp er forventet i fakturaer."),
+    }, (H, l) => l === "en" ? (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p6a" }, "Dear Sir/Madam,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "urgency" },
+                "Please be advised that invoice #8821 for the amount of ",
+                React.createElement(H, { c: "amount" }, "\u00A31,240.00"),
+                " is now 14 days overdue. Failure to pay within 48 hours may result in legal action.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p6b" }, "Pay now to avoid further charges:"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "link", lnk: true }, "http://dh1-finance-dept.com/pay/invoice-8821")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "p6c" }, "DH1 Finance Department")))) : (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p6a" }, "Kj\u00E6re,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "urgency" },
+                "Faktura #8821 p\u00E5 ",
+                React.createElement(H, { c: "amount" }, "kr 14 000"),
+                " er n\u00E5 14 dager forfalt. Manglende betaling innen 48 timer kan resultere i rettslige skritt.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p6b" }, "Betal n\u00E5 for \u00E5 unng\u00E5 ytterligere gebyrer:"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "link", lnk: true }, "http://dh1-finance-dept.com/betal/faktura-8821")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "p6c" }, "DH1 \u00D8konomiavdeling"))))),
+    E("p7", true, "it-support@your-company-helpdesk.net", "you@example.com", "Tue, 18 Mar 2026, 07:58", "IT Notice: Your password expires today", "IT-varsel: Passordet ditt utløper i dag", {
+        sender: C(true, 30, 0, "Suspicious IT domain", "'your-company-helpdesk.net' is generic. Real IT uses your organisation's own domain", "Mistenkelig IT-domene", "'your-company-helpdesk.net' er generisk. Ekte IT bruker organisasjonens eget domene"),
+        urgency: C(true, 20, 0, "Expiry urgency", "'Expires today' creates time pressure to stop you verifying", "Utløpshastverk", "'Utløper i dag' skaper tidspress"),
+        link: C(true, 30, 0, "Suspicious reset link", "IT resets go through your organisation's own portal, not external links", "Mistenkelig tilbakestillingslenke", "IT-tilbakestillinger går gjennom organisasjonens eget portal"),
+        greeting: C(true, 10, 0, "Generic greeting", "Your IT department would address you by name, not 'Dear Employee'", "Generisk hilsen", "Din IT-avdeling ville henvende seg med navn"),
+    }, (H, l) => l === "en" ? (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "greeting" }, "Dear Employee,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "urgency" }, "This is an automated notification that your company password will expire today at 17:00. You must reset your password immediately to maintain access to company systems.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p7a" }, "Reset your password here:"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "link", lnk: true }, "http://your-company-helpdesk.net/password-reset/secure")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "p7b" }, "IT Support Team")))) : (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "greeting" }, "Kj\u00E6re ansatt,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "urgency" }, "Dette er et automatisk varsel om at bedriftspassordet ditt utl\u00F8per i dag kl. 17:00. Du m\u00E5 tilbakestille passordet umiddelbart.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p7a" }, "Tilbakestill passordet her:"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "link", lnk: true }, "http://your-company-helpdesk.net/passord-tilbakestill/sikker")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "p7b" }, "IT St\u00F8tteteam"))))),
+    E("p8", true, "delivery@dh1-parce1-tracking.com", "you@example.com", "Wed, 19 Mar 2026, 14:10", "Your parcel could not be delivered. Pay £1.99 redelivery fee", "Pakken din kunne ikke leveres. Betal kr 25 for ny levering", {
+        sender: C(true, 30, 0, "Fake delivery domain", "'dh1-parce1-tracking.com' is not a real courier. Note the '1' in 'parce1'", "Falskt leveringsdomene", "'dh1-parce1-tracking.com' er ikke et ekte budselskap"),
+        urgency: C(true, 15, 0, "Redelivery fee pressure", "Small unexpected fees are a common phishing trick", "Gebyr-press", "Små uventede gebyrer er et vanlig phishing-triks"),
+        link: C(true, 30, 0, "Suspicious payment link", "Real couriers have well-known domains and this link doesn't match any", "Mistenkelig betalingslenke", "Ekte budselskaper har kjente domener"),
+        fee: C(false, 0, 10, "Fee amount, not suspicious", "The small amount looks credible but it isn't the red flag. The sender and link are.", "Gebyrbeløp, ikke mistenkelig", "Det lille beløpet i seg selv er ikke rødt flagg."),
+    }, (H, l) => l === "en" ? (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p8a" }, "Hello,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p8b" }, "We attempted to deliver your parcel today but were unable to complete delivery as no one was home.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "urgency" },
+                "To arrange redelivery, a small fee of ",
+                React.createElement(H, { c: "fee" }, "\u00A31.99"),
+                " is required. Please pay within 24 hours or your parcel will be returned to sender.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p8c" }, "Pay redelivery fee:"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "link", lnk: true }, "http://dh1-parce1-tracking.com/redeliver/pay")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "p8d" }, "DH1 Parcel Services")))) : (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p8a" }, "Hei,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p8b" }, "Vi fors\u00F8kte \u00E5 levere pakken din i dag, men ingen var hjemme.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "urgency" },
+                "For \u00E5 arrangere ny levering kreves et lite gebyr p\u00E5 ",
+                React.createElement(H, { c: "fee" }, "kr 25"),
+                ". Betal innen 24 timer, ellers returneres pakken.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p8c" }, "Betal leveringsgebyr:"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "link", lnk: true }, "http://dh1-parce1-sporing.com/ny-levering/betal")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "p8d" }, "DH1 Pakketjenester"))))),
+    E("p9", true, "security-alert@your-bank-secure.info", "you@example.com", "Thu, 20 Mar 2026, 09:33", "Important: Unusual transaction detected on your account", "Viktig: Uvanlig transaksjon oppdaget på kontoen din", {
+        sender: C(true, 30, 0, "Suspicious bank domain", "Real banks email from their own domain and 'your-bank-secure.info' is not a real bank", "Mistenkelig bankdomene", "Ekte banker sender fra eget domene og 'your-bank-secure.info' er ikke en ekte bank"),
+        urgency: C(true, 20, 0, "Fraud scare tactic", "Claiming a fraudulent transaction creates panic and bypasses critical thinking", "Svindel-frykt-taktikk", "Påstand om svindeltransaksjon skaper panikk"),
+        link: C(true, 30, 0, "Suspicious verification link", "Banks never ask you to verify transactions by clicking email links", "Mistenkelig bekreftelseslenke", "Banker ber deg aldri bekrefte transaksjoner via e-postlenker"),
+        greeting: C(true, 10, 0, "Generic greeting", "Your bank always uses your full name, never 'Dear Account Holder'", "Generisk hilsen", "Din bank bruker alltid fullt navn, aldri 'Kjære kontoeier'"),
+    }, (H, l) => l === "en" ? (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "greeting" }, "Dear Account Holder,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "urgency" }, "We have detected an unusual transaction of \u00A3342.00 from your account to an overseas recipient. If you did not authorise this, your account may be at risk.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p9a" }, "Verify and secure your account:"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "link", lnk: true }, "http://your-bank-secure.info/verify-transaction")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "p9b" }, "Bank Security Team")))) : (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "greeting" }, "Kj\u00E6re kontoeier,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "urgency" }, "Vi har oppdaget en uvanlig transaksjon p\u00E5 kr 3 420 til en utenlandsk mottaker. Hvis du ikke autoriserte dette, kan kontoen din v\u00E6re i fare.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "p9a" }, "Bekreft og sikre kontoen din:"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "link", lnk: true }, "http://your-bank-secure.info/bekreft-transaksjon")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "p9b" }, "Bank Sikkerhetsteam"))))),
+    // ── LEGIT 1-6 ──
+    E("l1", false, "no-reply@postnord.com", "you@example.com", "Wed, 12 Mar 2026, 10:05", "Your parcel is on its way. Track it here", "Pakken din er på vei. Spor den her", {
+        sender: C(false, 0, 15, "Sender is legitimate", "no-reply@postnord.com is the real PostNord domain.", "Avsender er legitim", "no-reply@postnord.com er det ekte PostNord-domenet."),
+        link: C(false, 0, 15, "Link is legitimate", "The link goes to the real postnord.com.", "Lenken er legitim", "Lenken går til ekte postnord.com."),
+        name: C(false, 0, 0, "Addressed by name, good sign", "'Hi Alex' is a trustworthy sign, not a red flag.", "Adressert med navn, godt tegn", "'Hei Alex' er et godt tegn, ikke et rødt flagg."),
+        tracking: C(false, 0, 10, "Tracking number, normal content", "Tracking numbers are expected in delivery emails.", "Sporingsnummer, normalt innhold", "Sporingsnumre er forventet i leveringse-poster."),
+    }, (H, l) => l === "en" ? (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "name" }, "Hi Alex,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l1a" }, "Good news! Your parcel is on its way and will be delivered tomorrow between 09:00 and 17:00.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "tracking" },
+                "Tracking number: ",
+                React.createElement("strong", null, "NO-748291034"))),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l1b" }, "Track your delivery:"),
+            " ",
+            React.createElement(H, { c: "link", lnk: true }, "https://www.postnord.com/track/NO-748291034")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "l1c" }, "Best regards, PostNord Delivery")))) : (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "name" }, "Hei Alex,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l1a" }, "Gode nyheter! Pakken din er p\u00E5 vei og vil bli levert i morgen mellom 09:00 og 17:00.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "tracking" },
+                "Sporingsnummer: ",
+                React.createElement("strong", null, "NO-748291034"))),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l1b" }, "Spor leveringen:"),
+            " ",
+            React.createElement(H, { c: "link", lnk: true }, "https://www.postnord.com/spor/NO-748291034")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "l1c" }, "Med vennlig hilsen, PostNord Levering"))))),
+    E("l2", false, "no-reply@spotify.com", "you@example.com", "Thu, 13 Mar 2026, 12:00", "Your Spotify receipt for March 2026", "Din Spotify-kvittering for mars 2026", {
+        sender: C(false, 0, 15, "Sender is the real Spotify domain", "no-reply@spotify.com is Spotify's official domain.", "Avsender er ekte Spotify-domene", "no-reply@spotify.com er Spotifys offisielle domene."),
+        amount: C(false, 0, 10, "Billing amount, normal content", "Monthly receipts always show the charge. Not suspicious.", "Fakturabeløp, normalt innhold", "Månedlige kvitteringer viser alltid beløpet."),
+        link: C(false, 0, 15, "Link goes to real spotify.com", "The link leads to spotify.com, which is Spotify's own domain.", "Lenke til ekte spotify.com", "Lenken fører til spotify.com."),
+    }, (H, l) => l === "en" ? (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l2a" }, "Hi Alex,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l2b" }, "Thanks for subscribing to Spotify Premium. Here is your receipt for this month.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "amount" }, "Plan: Premium Individual, Amount charged: \u00A310.99, Date: 13 March 2026")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l2c" }, "Manage your subscription:"),
+            " ",
+            React.createElement(H, { c: "link", lnk: true }, "https://www.spotify.com/account/subscription")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "l2d" }, "The Spotify Team")))) : (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l2a" }, "Hei Alex,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l2b" }, "Takk for at du abonnerer p\u00E5 Spotify Premium. Her er kvitteringen din for denne m\u00E5neden.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "amount" }, "Plan: Premium Individuell, Belastet: kr 119, Dato: 13. mars 2026")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l2c" }, "Administrer abonnementet:"),
+            " ",
+            React.createElement(H, { c: "link", lnk: true }, "https://www.spotify.com/no/account/subscription")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "l2d" }, "Spotify-teamet"))))),
+    E("l3", false, "support@google.com", "you@example.com", "Fri, 14 Mar 2026, 09:20", "Security alert: New sign-in to your Google account", "Sikkerhetsvarsel: Ny innlogging på Google-kontoen din", {
+        sender: C(false, 0, 15, "Sender is real Google domain", "support@google.com is a legitimate Google domain.", "Avsender er ekte Google-domene", "support@google.com er et legitimt Google-domene."),
+        link: C(false, 0, 15, "Link goes to real google.com", "The link goes to myaccount.google.com, which is Google's own domain.", "Lenke til ekte google.com", "Lenken går til myaccount.google.com."),
+        name: C(false, 0, 0, "Addressed by name, trustworthy", "Google uses your real name, not 'Dear User'.", "Adressert med navn, tillitsvekkende", "Google bruker ditt ekte navn."),
+    }, (H, l) => l === "en" ? (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "name" }, "Hi Alex,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l3a" }, "Your Google account was just signed in to from a new device.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l3b" }, "Device: Windows PC, Location: London UK, Time: 14 Mar 2026 at 09:17")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l3c" }, "If this was you, no action is needed. If you don't recognise this sign-in:"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "link", lnk: true }, "https://myaccount.google.com/security-checkup")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "l3d" }, "The Google Account Team")))) : (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "name" }, "Hei Alex,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l3a" }, "Google-kontoen din ble nettopp logget inn fra en ny enhet.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l3b" }, "Enhet: Windows PC, Sted: London, Tid: 14. mars 2026 kl. 09:17")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l3c" }, "Hvis dette var deg, trenger du ikke gj\u00F8re noe. Hvis ikke:"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "link", lnk: true }, "https://myaccount.google.com/security-checkup")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "l3d" }, "Google Konto-teamet"))))),
+    E("l4", false, "noreply@amazon.co.uk", "you@example.com", "Sat, 15 Mar 2026, 16:44", "Your Amazon order has been dispatched", "Amazon-bestillingen din er sendt", {
+        sender: C(false, 0, 15, "Sender is real Amazon domain", "noreply@amazon.co.uk is Amazon's legitimate UK domain.", "Avsender er ekte Amazon-domene", "noreply@amazon.co.uk er Amazons legitime domene."),
+        link: C(false, 0, 15, "Link goes to real amazon.co.uk", "The tracking link goes to amazon.co.uk, which is Amazon's real domain.", "Lenke til ekte amazon.co.uk", "Sporingslenkene går til amazon.co.uk."),
+        orderno: C(false, 0, 10, "Order number, normal content", "Order numbers are always in confirmation emails. Not suspicious.", "Ordrenummer, normalt innhold", "Ordrenumre er alltid i bekreftelse-e-poster."),
+    }, (H, l) => l === "en" ? (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l4a" }, "Hello Alex,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l4b" },
+                "Your order ",
+                React.createElement(H, { c: "orderno" },
+                    React.createElement("strong", null, "#026-3948271-0012345")),
+                " has been dispatched and is on its way to you.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l4c" }, "Estimated delivery: Monday 17 March 2026")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l4d" }, "Track your order:"),
+            " ",
+            React.createElement(H, { c: "link", lnk: true }, "https://www.amazon.co.uk/orders/026-3948271-0012345")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "l4e" }, "Amazon.co.uk")))) : (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l4a" }, "Hei Alex,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l4b" },
+                "Bestillingen din ",
+                React.createElement(H, { c: "orderno" },
+                    React.createElement("strong", null, "#026-3948271-0012345")),
+                " er sendt og er p\u00E5 vei til deg.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l4c" }, "Estimert levering: Mandag 17. mars 2026")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l4d" }, "Spor bestillingen:"),
+            " ",
+            React.createElement(H, { c: "link", lnk: true }, "https://www.amazon.co.uk/orders/026-3948271-0012345")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "l4e" }, "Amazon.co.uk"))))),
+    E("l5", false, "no-reply@newsletter.bbc.co.uk", "you@example.com", "Sun, 16 Mar 2026, 07:00", "BBC News Newsletter, Top stories this week", "BBC News nyhetsbrev, Ukens toppnyheter", {
+        sender: C(false, 0, 15, "Sender is real BBC domain", "newsletter.bbc.co.uk is a legitimate BBC subdomain.", "Avsender er ekte BBC-domene", "newsletter.bbc.co.uk er et legitimt BBC-underdomene."),
+        link: C(false, 0, 15, "Links go to real bbc.co.uk", "All links lead to bbc.co.uk, the BBC's official website.", "Lenker til ekte bbc.co.uk", "Alle lenker fører til bbc.co.uk."),
+        unsub: C(false, 0, 10, "Unsubscribe link, normal content", "Legitimate newsletters always include an unsubscribe option. This is required by law.", "Avmeldingslenke, normalt innhold", "Legitime nyhetsbrev inkluderer alltid avmeldingslenke. Dette er lovpålagt."),
+    }, (H, l) => l === "en" ? (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l5a" }, "Good morning Alex,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l5b" }, "Here are this week's most-read stories from BBC News:")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "link", lnk: true }, "https://www.bbc.co.uk/news/uk-politics-67834512"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "l5c" }, "UK Government announces new housing policy")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "link", lnk: true }, "https://www.bbc.co.uk/news/science-67841023"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "l5d" }, "Scientists discover new deep-sea species")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "l5e" }, "To unsubscribe:"),
+            " ",
+            React.createElement(H, { c: "unsub", lnk: true }, "https://newsletter.bbc.co.uk/unsubscribe?id=alex123")))) : (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l5a" }, "God morgen Alex,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l5b" }, "Her er ukens mest leste saker fra BBC News:")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "link", lnk: true }, "https://www.bbc.co.uk/news/uk-politics-67834512"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "l5c" }, "Britisk regjering kunngj\u00F8r ny boligpolitikk")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "link", lnk: true }, "https://www.bbc.co.uk/news/science-67841023"),
+            React.createElement("br", null),
+            React.createElement(H, { c: "l5d" }, "Forskere oppdager ny dyphavs-art")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "l5e" }, "Meld deg av:"),
+            " ",
+            React.createElement(H, { c: "unsub", lnk: true }, "https://newsletter.bbc.co.uk/avmeld?id=alex123"))))),
+    E("l6", false, "receipts@dnb.no", "you@example.com", "Mon, 17 Mar 2026, 10:15", "DNB: Your monthly statement is ready", "DNB: Månedlig kontoutskrift er klar", {
+        sender: C(false, 0, 15, "Sender is real DNB domain", "receipts@dnb.no is DNB's legitimate banking domain.", "Avsender er ekte DNB-domene", "receipts@dnb.no er DNBs legitime domene."),
+        link: C(false, 0, 15, "Link goes to real dnb.no", "The link leads to dnb.no, which is DNB's official website.", "Lenke til ekte dnb.no", "Lenken fører til dnb.no."),
+        name: C(false, 0, 0, "Addressed by name, trustworthy", "DNB addresses you by your registered name. Positive sign.", "Adressert med navn, tillitsvekkende", "DNB henvender seg med registrert navn."),
+        amount: C(false, 0, 10, "Balance, normal bank content", "Monthly statements always show your balance. Expected content.", "Saldo, normalt bankinnhold", "Månedlige utskrifter viser alltid saldoen din."),
+    }, (H, l) => l === "en" ? (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "name" }, "Hello Alex Johnson,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l6a" }, "Your monthly account statement for March 2026 is now available.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "amount" }, "Account: **** **** 4821, Current balance: kr 24,340.00")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l6b" }, "View your full statement securely:"),
+            " ",
+            React.createElement(H, { c: "link", lnk: true }, "https://www.dnb.no/privat/nettbank/utskrift/2026-03")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "l6c" }, "DNB Bank")))) : (React.createElement(React.Fragment, null,
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "name" }, "Hei Alex Johnson,")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l6a" }, "Din m\u00E5nedlige kontoutskrift for mars 2026 er n\u00E5 tilgjengelig.")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "amount" }, "Konto: **** **** 4821, N\u00E5v\u00E6rende saldo: kr 24 340,00")),
+        React.createElement("p", { style: { marginBottom: 12 } },
+            React.createElement(H, { c: "l6b" }, "Se hele utskriften:"),
+            " ",
+            React.createElement(H, { c: "link", lnk: true }, "https://www.dnb.no/privat/nettbank/utskrift/2026-03")),
+        React.createElement("p", null,
+            React.createElement(H, { c: "l6c" }, "DNB Bank"))))),
+];
+function shuffle(arr) {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+}
+function pickEmails() {
+    const p = shuffle(ALL.filter(e => e.isPhishing)).slice(0, 4);
+    const l = shuffle(ALL.filter(e => !e.isPhishing)).slice(0, 4);
+    return shuffle([...p, ...l]);
+}
+function PhishGuard() {
+    var _a;
+    const prefersDark = typeof window !== "undefined" && ((_a = window.matchMedia) === null || _a === void 0 ? void 0 : _a.call(window, "(prefers-color-scheme: dark)").matches);
+    const [dark, setDark] = useState(prefersDark);
+    const [lang, setLang] = useState("en");
+    const [screen, setScreen] = useState("intro");
+    const [openCard, setOpenCard] = useState(null);
+    const [pool, setPool] = useState([]);
+    const [ready, setReady] = useState(false);
+    if (!ready) {
+        const p = pickEmails();
+        setPool(p);
+        setReady(true);
+    }
+    const [idx, setIdx] = useState(0);
+    const [marked, setMarked] = useState(new Set());
+    const [answered, setAnswered] = useState(false);
+    const [feedback, setFeedback] = useState(null);
+    const [score, setScore] = useState(0);
+    const [results, setResults] = useState([]);
+    const tx = T[lang];
+    const cur = pool[idx];
+    const total = pool.length;
+    const c = {
+        bg: dark ? "#0f1117" : "#f5f4f0", surface: dark ? "#1a1d27" : "#ffffff",
+        surface2: dark ? "#22263a" : "#f5f4f0", border: dark ? "#2e3350" : "#e2e0d8",
+        text: dark ? "#e8e6e0" : "#1a1917", muted: dark ? "#7a7e9a" : "#7a7870",
+        accent: "#2c5f8a", accentL: dark ? "#1a3352" : "#e8f0f8", accentT: dark ? "#7ab3d4" : "#2c5f8a",
+        warn: dark ? "#3d2e0a" : "#fef8ec", warnB: dark ? "#6b5010" : "#f0d080", warnT: dark ? "#e8c060" : "#7a5a10",
+        good: dark ? "rgba(30,122,74,0.2)" : "rgba(30,122,74,0.1)", goodT: dark ? "#5dcf8a" : "#1e7a4a",
+        bad: dark ? "rgba(192,57,43,0.2)" : "rgba(192,57,43,0.08)", badT: dark ? "#e87a6a" : "#c0392b",
+        amber: dark ? "rgba(232,160,32,0.2)" : "rgba(232,160,32,0.1)", amberT: dark ? "#e8c060" : "#b07010",
+    };
+    const reset = (i = 0, keepScore = false) => {
+        setIdx(i);
+        setMarked(new Set());
+        setAnswered(false);
+        setFeedback(null);
+        if (!keepScore) {
+            setScore(0);
+            setResults([]);
+        }
+    };
+    const toggle = clue => {
+        if (answered)
+            return;
+        setMarked(prev => { const n = new Set(prev); n.has(clue) ? n.delete(clue) : n.add(clue); return n; });
+    };
+    const wrongClicks = () => [...marked].filter(k => { const cd = cur.clues[k]; return cd ? !cd.s : true; }).length;
+    const correctClicks = () => [...marked].filter(k => { var _a; return (_a = cur.clues[k]) === null || _a === void 0 ? void 0 : _a.s; }).length;
+    const submit = verdict => {
+        if (answered)
+            return;
+        setAnswered(true);
+        const isP = cur.isPhishing;
+        const correct = verdict === (isP ? "phishing" : "legitimate");
+        let bonus = 0, penalty = 0;
+        marked.forEach(k => {
+            const cd = cur.clues[k];
+            if (!cd) {
+                penalty += DECOY_PEN;
+                return;
+            }
+            if (cd.s && correct)
+                bonus += cd.pts;
+            else if (!cd.s)
+                penalty += cd.pen;
+        });
+        const roundScore = Math.max(0, (correct ? 20 : 0) + bonus - penalty);
+        setScore(s => s + roundScore);
+        setResults(r => [...r, { correct, roundScore }]);
+        setFeedback({ correct, roundScore, isP, bonus, penalty });
+    };
+    const nextEmail = () => { if (idx + 1 < total)
+        reset(idx + 1, true);
+    else
+        setScreen("result"); };
+    const H = ({ c: clue, children, lnk }) => {
+        const isM = marked.has(clue);
+        const cd = cur.clues[clue];
+        const isSus = (cd === null || cd === void 0 ? void 0 : cd.s) === true;
+        const isDecoy = cd ? !cd.s : true;
+        const isWrong = answered && isM && isDecoy;
+        const isCorrect = answered && isM && isSus;
+        const isMissed = answered && !isM && isSus;
+        let bg = "transparent", outline = "none";
+        if (!answered && isM) {
+            bg = "rgba(255,200,0,0.4)";
+            outline = "2px solid #e8a020";
+        }
+        if (isWrong) {
+            bg = "rgba(192,57,43,0.2)";
+            outline = "2px solid #c0392b";
+        }
+        if (isCorrect) {
+            bg = "rgba(30,122,74,0.2)";
+            outline = "2px solid #1e7a4a";
+        }
+        if (isMissed) {
+            bg = "rgba(232,160,32,0.2)";
+            outline = "2px dashed #e8a020";
+        }
+        return (React.createElement("span", { onClick: () => toggle(clue), title: answered ? "" : (lang === "en" ? "Click to mark as suspicious" : "Klikk for å merke som mistenkelig"), style: { cursor: answered ? "default" : "pointer", background: bg, outline, borderRadius: 3, padding: "2px 3px",
+                transition: "background 0.15s", color: lnk ? c.accentT : "inherit", textDecoration: lnk ? "underline" : "none",
+                display: lnk ? "inline" : "block", width: lnk ? "auto" : "100%" } }, children));
+    };
+    const fTitle = () => { if (!feedback)
+        return ""; if (feedback.isP)
+        return feedback.correct ? tx.fCP : tx.fWP; return feedback.correct ? tx.fCL : tx.fWL; };
+    const fBody = () => { if (!feedback)
+        return ""; if (feedback.isP && feedback.correct)
+        return tx.fBCP(correctClicks(), wrongClicks()); if (feedback.isP && !feedback.correct)
+        return tx.fBWP; return feedback.correct ? tx.fBCL : tx.fBWL; };
+    const rank = getRank(score);
+    const Btn = ({ onClick, bg, children, outline: o }) => (React.createElement("button", { onClick: onClick, style: { background: bg || "transparent", color: bg ? "white" : c.text, border: o ? `1px solid ${c.border}` : "none", borderRadius: 8, padding: "10px 22px", fontSize: 14, fontWeight: 500, cursor: "pointer" } }, children));
+    const FlagBtn = ({ code, flag, label }) => (React.createElement("button", { onClick: () => setLang(code), title: label, style: { background: lang === code ? c.accentL : "transparent", border: lang === code ? `2px solid ${c.accent}` : "2px solid transparent", borderRadius: 6, padding: "3px 7px", cursor: "pointer", fontSize: 18, lineHeight: 1 } }, flag));
+    return (React.createElement("div", { style: { fontFamily: "'Segoe UI',sans-serif", background: c.bg, color: c.text, minHeight: "100vh", display: "flex", flexDirection: "column", transition: "background 0.2s,color 0.2s" } },
+        React.createElement("div", { style: { background: c.surface, borderBottom: `1px solid ${c.border}`, padding: "0 24px", height: 56, display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 50 } },
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, fontWeight: 600, fontSize: 15 } },
+                    React.createElement("span", { style: { background: c.accent, color: "white", borderRadius: 6, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 } }, "\u2709\uFE0F"),
+                    "MailSense"),
+                screen === "game" && (React.createElement("button", { onClick: () => { setPool(pickEmails()); reset(0); setScreen("intro"); }, style: { background: "transparent", border: `1px solid ${c.border}`, borderRadius: 8, padding: "5px 12px", fontSize: 13, color: c.muted, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 } },
+                    "\uD83C\uDFE0 ",
+                    lang === "en" ? "Home" : "Hjem"))),
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                React.createElement(FlagBtn, { code: "en", flag: "\uD83C\uDDEC\uD83C\uDDE7", label: "English" }),
+                React.createElement(FlagBtn, { code: "no", flag: "\uD83C\uDDF3\uD83C\uDDF4", label: "Norsk" }),
+                React.createElement("div", { style: { width: 1, height: 20, background: c.border } }),
+                React.createElement("button", { onClick: () => setDark(d => !d), title: dark ? tx.lightMode : tx.darkMode, style: { background: "transparent", border: `1px solid ${c.border}`, borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 16, color: c.text } }, dark ? "☀️" : "🌙"),
+                React.createElement("div", { style: { width: 1, height: 20, background: c.border } }),
+                screen === "game" && React.createElement("span", { style: { fontSize: 12, color: c.muted } }, tx.emailOf(idx + 1, total)),
+                React.createElement("span", { style: { background: c.accentL, color: c.accentT, padding: "3px 10px", borderRadius: 99, fontWeight: 500, fontSize: 13 } },
+                    "\u2B50 ",
+                    score,
+                    " ",
+                    tx.pts))),
+        React.createElement("div", { style: { maxWidth: 820, width: "100%", margin: "0 auto", padding: "32px 16px 60px" } },
+            screen === "intro" && (React.createElement("div", { style: { background: c.surface, border: `1px solid ${c.border}`, borderRadius: 12, padding: "40px 36px", maxWidth: 520, margin: "0 auto", boxShadow: "0 4px 16px rgba(0,0,0,0.1)", textAlign: "center" } },
+                React.createElement("div", { style: { display: "inline-block", background: c.accentL, color: c.accentT, fontSize: 12, fontWeight: 600, padding: "4px 14px", borderRadius: 99, marginBottom: 20, letterSpacing: "0.06em", textTransform: "uppercase" } }, tx.badge),
+                React.createElement("h1", { style: { fontSize: 26, fontWeight: 700, marginBottom: 10 } }, tx.introTitle),
+                React.createElement("p", { style: { color: c.muted, fontSize: 14, lineHeight: 1.7, marginBottom: 24 }, dangerouslySetInnerHTML: { __html: tx.introDesc } }),
+                React.createElement("div", { style: { background: c.surface2, border: `1px solid ${c.border}`, borderRadius: 8, padding: "16px 20px", marginBottom: 28, textAlign: "left" } }, tx.rules.map((rule, i) => (React.createElement("div", { key: i, style: { display: "flex", gap: 10, alignItems: "flex-start", marginBottom: i < tx.rules.length - 1 ? 10 : 0, fontSize: 13, lineHeight: 1.5 } },
+                    React.createElement("span", { style: { background: c.accent, color: "white", borderRadius: "50%", width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, flexShrink: 0, marginTop: 1 } }, i + 1),
+                    React.createElement("span", null, rule))))),
+                React.createElement("div", { style: { display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" } },
+                    React.createElement(Btn, { onClick: () => setScreen("guide"), bg: c.accent }, tx.viewGuide),
+                    React.createElement(Btn, { onClick: () => { setPool(pickEmails()); reset(0); setScreen("game"); }, outline: true }, tx.skipGame)))),
+            screen === "guide" && (React.createElement("div", { style: { maxWidth: 640, margin: "0 auto" } },
+                React.createElement("div", { style: { textAlign: "center", marginBottom: 32 } },
+                    React.createElement("div", { style: { display: "inline-block", background: c.accentL, color: c.accentT, fontSize: 12, fontWeight: 600, padding: "4px 14px", borderRadius: 99, marginBottom: 16, letterSpacing: "0.06em", textTransform: "uppercase" } }, tx.guideBadge),
+                    React.createElement("h2", { style: { fontSize: 24, fontWeight: 700, marginBottom: 8 } }, tx.guideTitle),
+                    React.createElement("p", { style: { color: c.muted, fontSize: 14, lineHeight: 1.7 } }, tx.guideDesc)),
+                React.createElement("div", { style: { background: c.accentL, border: `1px solid ${c.accentT}22`, borderRadius: 10, padding: "16px 20px", marginBottom: 24, display: "flex", gap: 14, alignItems: "flex-start" } },
+                    React.createElement("span", { style: { fontSize: 22, flexShrink: 0 } }, "\u2753"),
+                    React.createElement("div", null,
+                        React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: c.accentT, marginBottom: 6 } }, lang === "en" ? "What is phishing?" : "Hva er phishing?"),
+                        React.createElement("p", { style: { fontSize: 13, lineHeight: 1.7, color: c.text, margin: 0 } }, tx.phishingWhat))),
+                React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12, marginBottom: 32 } }, tx.guideCards.map(card => (React.createElement("div", { key: card.id, onClick: () => setOpenCard(openCard === card.id ? null : card.id), style: { background: c.surface, border: `1px solid ${openCard === card.id ? c.accent : c.border}`, borderRadius: 10, overflow: "hidden", cursor: "pointer", boxShadow: openCard === card.id ? "0 4px 16px rgba(44,95,138,0.15)" : "none", transition: "all 0.2s" } },
+                    React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px" } },
+                        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 14 } },
+                            React.createElement("span", { style: { fontSize: 22, width: 44, height: 44, borderRadius: 10, background: openCard === card.id ? c.accentL : c.surface2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, card.icon),
+                            React.createElement("div", null,
+                                React.createElement("div", { style: { fontWeight: 600, fontSize: 15, marginBottom: 2 } }, card.title),
+                                React.createElement("div", { style: { fontSize: 13, color: c.muted, lineHeight: 1.4 } }, card.preview))),
+                        React.createElement("span", { style: { fontSize: 18, color: c.muted, marginLeft: 12, transition: "transform 0.2s", transform: openCard === card.id ? "rotate(180deg)" : "none", display: "inline-block" } }, "\u25BE")),
+                    openCard === card.id && (React.createElement("div", { style: { padding: "0 20px 20px", animation: "fadeIn 0.2s ease" } },
+                        React.createElement("div", { style: { borderTop: `1px solid ${c.border}`, paddingTop: 16 } },
+                            React.createElement("p", { style: { fontSize: 14, lineHeight: 1.75, marginBottom: 14 } }, card.detail),
+                            React.createElement("div", { style: { background: c.surface2, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: c.muted, fontFamily: "monospace", whiteSpace: "pre-line", lineHeight: 1.7 } }, card.example)))))))),
+                React.createElement("div", { style: { background: c.warn, border: `1px solid ${c.warnB}`, borderRadius: 10, padding: "14px 18px", fontSize: 13, color: c.warnT, marginBottom: 28, lineHeight: 1.7 } },
+                    "\uD83D\uDCA1 ",
+                    React.createElement("strong", null, lang === "en" ? "Remember:" : "Husk:"),
+                    " ",
+                    tx.guideTip),
+                React.createElement("div", { style: { display: "flex", gap: 10, justifyContent: "center" } },
+                    React.createElement(Btn, { onClick: () => { setPool(pickEmails()); reset(0); setScreen("game"); }, bg: c.accent }, tx.startGame),
+                    React.createElement(Btn, { onClick: () => setScreen("intro"), outline: true }, tx.back)))),
+            screen === "game" && cur && (React.createElement(React.Fragment, null,
+                React.createElement("div", { style: { background: c.warn, border: `1px solid ${c.warnB}`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: c.warnT, marginBottom: 16, display: "flex", gap: 8 } },
+                    "\uD83D\uDCA1 ",
+                    React.createElement("span", null, tx.gameHint)),
+                React.createElement("div", { style: { background: c.surface, border: `1px solid ${c.border}`, borderRadius: 12, overflow: "hidden", boxShadow: "0 4px 16px rgba(0,0,0,0.08)", marginBottom: 20 } },
+                    React.createElement("div", { style: { background: c.surface2, borderBottom: `1px solid ${c.border}`, padding: "10px 16px", display: "flex", alignItems: "center", gap: 6 } },
+                        ["#ff5f57", "#febc2e", "#28c840"].map(col => React.createElement("span", { key: col, style: { width: 10, height: 10, borderRadius: "50%", background: col, display: "inline-block" } })),
+                        React.createElement("span", { style: { marginLeft: 8, fontSize: 11, color: c.muted, letterSpacing: "0.05em" } }, tx.inbox)),
+                    React.createElement("div", { style: { padding: "16px 20px", borderBottom: `1px solid ${c.border}`, display: "grid", gap: 6 } }, [["From", React.createElement(H, { c: "sender" }, cur.from)], ["To", cur.to], ["Date", cur.date]].map(([label, val]) => (React.createElement("div", { key: label, style: { display: "flex", gap: 12, fontSize: 13, alignItems: "baseline" } },
+                        React.createElement("span", { style: { fontSize: 11, color: c.muted, textTransform: "uppercase", letterSpacing: "0.06em", minWidth: 40 } }, label),
+                        React.createElement("span", null, val))))),
+                    React.createElement("div", { style: { padding: "12px 20px", borderBottom: `1px solid ${c.border}`, fontSize: 16, fontWeight: 600 } },
+                        React.createElement(H, { c: "subject" }, cur.subject[lang])),
+                    React.createElement("div", { style: { padding: "20px", fontSize: 14, lineHeight: 1.8 } }, cur.body(H, lang))),
+                !answered && (React.createElement("div", { style: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 16 } },
+                    React.createElement("span", { style: { fontSize: 13, color: c.muted } }, tx.verdict),
+                    React.createElement(Btn, { onClick: () => submit("phishing"), bg: "#c0392b" }, tx.isPhishing),
+                    React.createElement(Btn, { onClick: () => submit("legitimate"), bg: "#1e7a4a" }, tx.isLegit),
+                    marked.size > 0 && React.createElement("span", { style: { marginLeft: "auto", background: c.warn, color: c.warnT, fontSize: 12, fontWeight: 500, padding: "4px 12px", borderRadius: 99, border: `1px solid ${c.warnB}` } }, tx.partsMarked(marked.size)))),
+                feedback && (React.createElement("div", { style: { borderRadius: 12, padding: 24, marginBottom: 16, border: "1px solid", background: feedback.correct ? c.good : c.bad, borderColor: feedback.correct ? (dark ? "#3d8a60" : "#90d4b0") : (dark ? "#8a3d35" : "#f0b0aa"), animation: "fadeIn 0.3s ease" } },
+                    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, fontWeight: 700, fontSize: 16, marginBottom: 10 } },
+                        React.createElement("span", null, feedback.correct ? "✅" : "❌"),
+                        React.createElement("span", { style: { color: feedback.correct ? c.goodT : c.badT } }, fTitle())),
+                    React.createElement("p", { style: { fontSize: 14, marginBottom: 14, lineHeight: 1.6 } }, fBody()),
+                    React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
+                        Object.entries(cur.clues).map(([key, clue]) => {
+                            const wasM = marked.has(key);
+                            const lc = clue[lang];
+                            if (!cur.isPhishing && !wasM)
+                                return null;
+                            if (cur.isPhishing && !clue.s && !wasM)
+                                return null;
+                            const isGood = cur.isPhishing && clue.s && wasM;
+                            const isBad = wasM && !clue.s;
+                            const isMiss = cur.isPhishing && clue.s && !wasM;
+                            if (!isGood && !isBad && !isMiss)
+                                return null;
+                            const bg2 = isGood ? c.good : isBad ? c.bad : c.amber;
+                            const col = isGood ? c.goodT : isBad ? c.badT : c.amberT;
+                            const icon = isGood ? "✓" : isBad ? "✗" : "!";
+                            return (React.createElement("div", { key: key, style: { display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 12px", borderRadius: 6, background: bg2, color: col, fontSize: 13, lineHeight: 1.5 } },
+                                React.createElement("span", { style: { fontWeight: 700, flexShrink: 0 } }, icon),
+                                React.createElement("div", null,
+                                    React.createElement("strong", null, lc.label),
+                                    clue.s && wasM && React.createElement("span", { style: { marginLeft: 6, opacity: 0.7 } },
+                                        "(+",
+                                        clue.pts,
+                                        " ",
+                                        tx.pts,
+                                        ")"),
+                                    !clue.s && wasM && React.createElement("span", { style: { marginLeft: 6, opacity: 0.7 } },
+                                        "(\u2212",
+                                        clue.pen,
+                                        " ",
+                                        tx.pts,
+                                        ")"),
+                                    React.createElement("br", null),
+                                    React.createElement("span", { style: { opacity: 0.85 } }, lc.desc))));
+                        }),
+                        [...marked].filter(k => !cur.clues[k]).map(k => (React.createElement("div", { key: k, style: { display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 12px", borderRadius: 6, background: c.bad, color: c.badT, fontSize: 13, lineHeight: 1.5 } },
+                            React.createElement("span", { style: { fontWeight: 700, flexShrink: 0 } }, "\u2717"),
+                            React.createElement("div", null,
+                                React.createElement("strong", null, lang === "en" ? "Not suspicious, wrong click" : "Ikke mistenkelig, feil klikk"),
+                                React.createElement("span", { style: { marginLeft: 6, opacity: 0.7 } },
+                                    "(\u2212",
+                                    DECOY_PEN,
+                                    " ",
+                                    tx.pts,
+                                    ")"),
+                                React.createElement("br", null),
+                                React.createElement("span", { style: { opacity: 0.85 } }, lang === "en" ? "This part of the email is normal content and is not a red flag." : "Denne delen av e-posten er normalt innhold og er ikke et rødt flagg.")))))),
+                    feedback.penalty > 0 && (React.createElement("div", { style: { marginTop: 10, fontSize: 13, color: c.badT, background: c.bad, padding: "6px 12px", borderRadius: 6 } },
+                        "\u26A0\uFE0F ",
+                        tx.penNote(wrongClicks()))),
+                    React.createElement("div", { style: { marginTop: 20, display: "flex", gap: 8, alignItems: "center" } },
+                        React.createElement(Btn, { onClick: nextEmail, bg: c.accent }, idx + 1 < total ? tx.nextEmail : tx.seeResults),
+                        React.createElement("span", { style: { fontSize: 13, color: c.muted } }, tx.ptsRound(feedback.roundScore, feedback.penalty))))))),
+            screen === "result" && (React.createElement("div", { style: { maxWidth: 600, margin: "0 auto" } },
+                React.createElement("div", { style: { background: c.surface, border: `1px solid ${c.border}`, borderRadius: 16, padding: "40px 36px", boxShadow: "0 4px 24px rgba(0,0,0,0.12)", textAlign: "center", marginBottom: 24 } },
+                    React.createElement("div", { style: { width: 110, height: 110, borderRadius: "50%", background: c.accentL, border: `3px solid ${c.accent}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" } },
+                        React.createElement("span", { style: { fontSize: 34, fontWeight: 700, color: c.accentT, lineHeight: 1 } }, score),
+                        React.createElement("span", { style: { fontSize: 11, color: c.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 4 } }, tx.points)),
+                    React.createElement("div", { style: { marginBottom: 20 } },
+                        React.createElement("div", { style: { fontSize: 12, color: c.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 } }, tx.yourRank),
+                        React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: 10, background: c.surface2, border: `2px solid ${rank.color}`, borderRadius: 12, padding: "12px 24px" } },
+                            React.createElement("span", { style: { fontSize: 28 } }, rank.icon),
+                            React.createElement("div", { style: { textAlign: "left" } },
+                                React.createElement("div", { style: { fontSize: 22, fontWeight: 700, color: rank.color, lineHeight: 1 } }, lang === "en" ? rank.en : rank.no),
+                                React.createElement("div", { style: { fontSize: 13, color: c.muted, marginTop: 3 } }, lang === "en" ? rank.den : rank.dno)))),
+                    React.createElement("div", { style: { background: c.surface2, borderRadius: 10, padding: "12px 16px", marginBottom: 24, display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" } }, results.map((r, i) => (React.createElement("div", { key: i, style: { fontSize: 13, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 } },
+                        React.createElement("span", null, r.correct ? "✅" : "❌"),
+                        React.createElement("span", { style: { color: c.muted, fontSize: 11 } },
+                            "+",
+                            r.roundScore))))),
+                    React.createElement("div", { style: { display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" } },
+                        React.createElement(Btn, { onClick: () => { setPool(pickEmails()); reset(0); setScreen("game"); }, bg: c.accent }, tx.tryAgain),
+                        React.createElement(Btn, { onClick: () => setScreen("guide"), outline: true }, tx.reviewGuide),
+                        React.createElement(Btn, { onClick: () => { setPool(pickEmails()); reset(0); setScreen("intro"); }, outline: true }, tx.startOver))),
+                React.createElement("div", { style: { background: c.surface, border: `1px solid ${c.border}`, borderRadius: 16, padding: "28px 32px", boxShadow: "0 4px 16px rgba(0,0,0,0.08)" } },
+                    React.createElement("h3", { style: { fontSize: 16, fontWeight: 700, marginBottom: 20, textAlign: "center", color: c.muted, textTransform: "uppercase", letterSpacing: "0.08em" } }, tx.allRanks),
+                    React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, [...RANKS].reverse().map(r => {
+                        const isYours = r.id === rank.id;
+                        return (React.createElement("div", { key: r.id, style: { display: "flex", alignItems: "center", gap: 14, padding: "10px 16px", borderRadius: 10, background: isYours ? c.surface2 : "transparent", border: `1px solid ${isYours ? r.color : c.border}`, transition: "all 0.2s" } },
+                            React.createElement("span", { style: { fontSize: 22, width: 36, textAlign: "center" } }, r.icon),
+                            React.createElement("div", { style: { flex: 1 } },
+                                React.createElement("div", { style: { fontWeight: isYours ? 700 : 500, fontSize: 15, color: isYours ? r.color : c.text } }, lang === "en" ? r.en : r.no),
+                                React.createElement("div", { style: { fontSize: 12, color: c.muted } },
+                                    r.min,
+                                    "\u2013",
+                                    r.max > 999 ? "∞" : r.max,
+                                    " ",
+                                    tx.pts)),
+                            isYours && React.createElement("span", { style: { fontSize: 11, fontWeight: 700, color: r.color, background: `${r.color}22`, padding: "3px 10px", borderRadius: 99, letterSpacing: "0.05em" } }, "YOU")));
+                    })))))),
+        React.createElement("style", null, `@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}`)));
+}
+const domRoot = ReactDOM.createRoot(document.getElementById('root'));
+domRoot.render(React.createElement(PhishGuard));
+</script>
+</body>
+</html>
